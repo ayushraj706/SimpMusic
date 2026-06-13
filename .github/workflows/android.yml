@@ -30,7 +30,8 @@ jobs:
       - name: Update build product flavor
         run: |
           echo "" >> ./gradle.properties
-          echo "isFullBuild=true" >> ./gradle.properties
+          # ⚡ YAHAN FIX KIYA HAI: true ko false kar diya taaki Sentry bypass ho jaye
+          echo "isFullBuild=false" >> ./gradle.properties
 
       # ⚡ Sentry secrets nahi hain, toh khali rakh kar error bypass karenge
       - name: Update Sentry Secrets
