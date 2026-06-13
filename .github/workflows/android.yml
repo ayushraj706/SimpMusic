@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'main'  # ⚡ Tere repo ki branch ke hisaab se update kar diya
+      - 'main'
     paths-ignore:
       - 'README.md'
       - 'fastlane/**'
@@ -30,10 +30,8 @@ jobs:
       - name: Update build product flavor
         run: |
           echo "" >> ./gradle.properties
-          # ⚡ YAHAN FIX KIYA HAI: true ko false kar diya taaki Sentry bypass ho jaye
           echo "isFullBuild=false" >> ./gradle.properties
 
-      # ⚡ Sentry secrets nahi hain, toh khali rakh kar error bypass karenge
       - name: Update Sentry Secrets
         run: |
           echo 'SENTRY_DSN=' > ./local.properties
@@ -45,29 +43,34 @@ jobs:
       - name: Build release APK
         run: ./gradlew androidApp:assembleRelease
 
-      # 🔐 NAYA SIGNING STEP: Bina secrets ke kaam karega!
       - name: Generate Keystore, Zipalign & Sign APK
         run: |
-          # 1. On-the-fly naya official keystore generate karega
+          # 1. On-the-fly keystore generate karega
           keytool -genkey -v -keystore release.keystore -alias simpmusic -keyalg RSA -keysize 2048 -validity 10000 -storepass android123 -keypass android123 -dname "CN=SimpMusic,O=Developer,C=IN"
           
           # 2. Build Tools aur APK Path set karega
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
           APK_DIR="androidApp/build/outputs/apk/release"
           
-          # 3. Jo bhi unsigned APK bani hai usko dhoondega
-          TARGET_APK=$(find $APK_DIR -name "*.apk" | head -n 1)
+          # ⚡ 3. YAHAN FIX KIYA HAI: Sirf arm64-v8a wala APK hi dhoondega
+          TARGET_APK=$(find $APK_DIR -name "*arm64-v8a*.apk" | head -n 1)
+          
+          # Agar by chance arm64 split na mile, toh universal ko fallback rakha hai
+          if [ -z "$TARGET_APK" ]; then
+            TARGET_APK=$(find $APK_DIR -name "*universal*.apk" | head -n 1)
+          fi
           
           echo "Signing exact APK: $TARGET_APK"
           
-          # 4. Android 14/15/16 ke strict rules ke liye file ko Zipalign karega
+          # 4. Zipalign for Android 16 strict rules
           $BUILD_TOOLS_DIR/zipalign -v -p 4 "$TARGET_APK" $APK_DIR/aligned.apk
           
-          # 5. Apksigner se 100% valid V2/V3 signature lagayega
-          $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:android123 --key-pass pass:android123 --out $APK_DIR/SimpMusic-HiBy-Signed.apk $APK_DIR/aligned.apk
+          # 5. Apksigner with V2/V3 signatures
+          $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:android123 --key-pass pass:android123 --out $APK_DIR/SimpMusic-HiBy-arm64-v8a-Signed.apk $APK_DIR/aligned.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: SimpMusic-Origin-Island
-          path: androidApp/build/outputs/apk/release/SimpMusic-HiBy-Signed.apk
+          # Naya naam tak ki download karte waqt clear rahe
+          name: SimpMusic-Origin-Island-arm64
+          path: androidApp/build/outputs/apk/release/SimpMusic-HiBy-arm64-v8a-Signed.apk
