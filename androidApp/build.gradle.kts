@@ -16,11 +16,14 @@ plugins {
 android {
     val abis = arrayOf("armeabi-v7a", "arm64-v8a", "x86_64")
 
+    // ⚠️ ISKO CHANGE NAHI KARNA HAI (Ye build fail hone se rokega)
     namespace = "com.maxrave.simpmusic"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.maxrave.simpmusic"
+        // ⚡ BAS YAHAN NAAM BADALNA HAI (OriginOS Island fix ke liye)
+        applicationId = "com.hiby.music"
+        
         minSdk = 26
         targetSdk = 36
         versionCode =
