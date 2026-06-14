@@ -822,7 +822,7 @@ class SharedViewModel(
                     Logger.w(tag, "ToggleLike")
                     mediaPlayerHandler.onPlayerEvent(PlayerEvent.ToggleLike)
                 }
-
+                
                 is UIEvent.UpdateVolume -> {
                     val newVolume = uiEvent.newVolume
                     dataStoreManager.setPlayerVolume(newVolume)
@@ -830,6 +830,42 @@ class SharedViewModel(
                 }
             }
         }
+
+            /**
+     * Called by Google Assistant voice search integration.
+     * Searches for [query], picks the first Track result, and starts playback automatically.
+     */
+    fun playFromVoiceSearch(query: String) {
+        viewModelScope.launch {
+            streamRepository.search(query).collectLatest { response ->
+                val data = response.data
+                when (response) {
+                    is Resource.Success -> {
+                        if (!data.isNullOrEmpty()) {
+                            val track = data.first()
+                            mediaPlayerHandler.setQueueData(
+                                QueueData.Data(
+                                    listTracks = ArrayList(data),
+                                    firstPlayedTrack = track,
+                                    playlistId = "VOICE_SEARCH_${query.replace(" ", "_")}",
+                                    playlistName = query,
+                                    playlistType = PlaylistType.RADIO,
+                                    continuation = null,
+                                ),
+                            )
+                            loadMediaItemFromTrack(track, SONG_CLICK)
+                        } else {
+                            makeToast("${getString(Res.string.error)}: No results found for \"$query\"")
+                        }
+                    }
+                    is Resource.Error -> {
+                        makeToast("${getString(Res.string.error)}: ${response.message}")
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
 
     override fun onCleared() {
         Logger.w("Check onCleared", "onCleared")
