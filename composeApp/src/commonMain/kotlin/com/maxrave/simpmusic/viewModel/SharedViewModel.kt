@@ -831,37 +831,31 @@ class SharedViewModel(
             }
         }
 
-            /**
-     * Called by Google Assistant voice search integration.
-     * Searches for [query], picks the first Track result, and starts playback automatically.
-     */
-    fun playFromVoiceSearch(query: String) {
+                fun playFromVoiceSearch(query: String) {
         viewModelScope.launch {
             streamRepository.search(query).collectLatest { response ->
-                val data = response.data
-                when (response) {
-                    is Resource.Success -> {
-                        if (!data.isNullOrEmpty()) {
-                            val track = data.first()
-                            mediaPlayerHandler.setQueueData(
-                                QueueData.Data(
-                                    listTracks = ArrayList(data),
-                                    firstPlayedTrack = track,
-                                    playlistId = "VOICE_SEARCH_${query.replace(" ", "_")}",
-                                    playlistName = query,
-                                    playlistType = PlaylistType.RADIO,
-                                    continuation = null,
-                                ),
-                            )
-                            loadMediaItemFromTrack(track, SONG_CLICK)
-                        } else {
-                            makeToast("${getString(Res.string.error)}: No results found for \"$query\"")
-                        }
+                // Check if response is a success and has data
+                if (response is Resource.Success) {
+                    val data = response.data
+                    if (!data.isNullOrEmpty()) {
+                        val track = data.first()
+                        mediaPlayerHandler.setQueueData(
+                            QueueData.Data(
+                                listTracks = ArrayList(data),
+                                firstPlayedTrack = track,
+                                playlistId = "VOICE_SEARCH_${query.replace(" ", "_")}",
+                                playlistName = query,
+                                playlistType = PlaylistType.RADIO,
+                                continuation = null,
+                            ),
+                        )
+                        loadMediaItemFromTrack(track, SONG_CLICK)
+                    } else {
+                        makeToast("No results found for \"$query\"")
                     }
-                    is Resource.Error -> {
-                        makeToast("${getString(Res.string.error)}: ${response.message}")
-                    }
-                    else -> {}
+                } else if (response is Resource.Error) {
+                    // Agar error field ka naam 'message' nahi hai, toh simple string show karo
+                    makeToast("Error: Search failed")
                 }
             }
         }
