@@ -313,7 +313,7 @@ fun App(viewModel: SharedViewModel = koinInject()) {
             content = { innerPadding ->
 
                 // ── Derived state ──────────────────────────────────────────────────────
-                val artworkUrl = nowPlayingData?.mediaItem?.artworkUrl
+                val artworkUrl = nowPlayingData?.songEntity?.thumbnails
                 val showGlassBackground = isLiquidGlassEnabled == TRUE && artworkUrl != null
 
                 // ── Root Box: everything stacks inside here ────────────────────────────
