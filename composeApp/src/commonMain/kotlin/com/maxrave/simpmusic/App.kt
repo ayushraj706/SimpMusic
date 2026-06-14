@@ -1,11 +1,14 @@
 package com.maxrave.simpmusic
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,8 +44,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +62,7 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
+import coil3.compose.AsyncImage
 import coil3.toUri
 import com.maxrave.domain.data.player.GenericMediaItem
 import com.maxrave.domain.manager.DataStoreManager
@@ -130,33 +137,14 @@ fun App(viewModel: SharedViewModel = koinInject()) {
 
     val isTranslucentBottomBar by viewModel.getTranslucentBottomBar().collectAsStateWithLifecycle(DataStoreManager.FALSE)
     val isLiquidGlassEnabled by viewModel.getEnableLiquidGlass().collectAsStateWithLifecycle(DataStoreManager.FALSE)
-    // MiniPlayer visibility logic
-    var isShowMiniPlayer by rememberSaveable {
-        mutableStateOf(true)
-    }
 
-    // Now playing screen
-    var isShowNowPlaylistScreen by rememberSaveable {
-        mutableStateOf(false)
-    }
+    var isShowMiniPlayer by rememberSaveable { mutableStateOf(true) }
+    var isShowNowPlaylistScreen by rememberSaveable { mutableStateOf(false) }
+    var isInFullscreen by rememberSaveable { mutableStateOf(false) }
+    var isNavBarVisible by rememberSaveable { mutableStateOf(true) }
+    var shouldShowUpdateDialog by rememberSaveable { mutableStateOf(false) }
 
-    // Fullscreen
-    var isInFullscreen by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    var isNavBarVisible by rememberSaveable {
-        mutableStateOf(true)
-    }
-
-    var shouldShowUpdateDialog by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    val hazeState =
-        rememberHazeState(
-            blurEnabled = true,
-        )
+    val hazeState = rememberHazeState(blurEnabled = true)
 
     LaunchedEffect(nowPlayingData) {
         isShowMiniPlayer = !(nowPlayingData?.mediaItem == null || nowPlayingData?.mediaItem == GenericMediaItem.EMPTY)
@@ -169,25 +157,10 @@ fun App(viewModel: SharedViewModel = koinInject()) {
         if (data != null) {
             if (data == "simpmusic://notification".toUri()) {
                 viewModel.setIntent(null)
-                navController.navigate(
-                    NotificationDestination,
-                )
+                navController.navigate(NotificationDestination)
             } else if (data.host == "simpmusic.org" || data.scheme == "simpmusic") {
-                // https://simpmusic.org/app/watch?v=VIDEO_ID
-                // https://simpmusic.org/app/playlist?list=PLAYLIST_ID
-                // https://simpmusic.org/app/channel/CHANNEL_ID
-                // simpmusic://watch?v=VIDEO_ID  (host="watch", no path)
-                // simpmusic://playlist?list=PLAYLIST_ID
-                // simpmusic://channel/CHANNEL_ID
                 val segments = data.pathSegments
-                // For simpmusic.org: segments = ["app", "watch"] → appPath = segments[1]
-                // For simpmusic://: host IS the appPath (e.g. host="watch"), segments = []
-                val appPath =
-                    if (data.scheme == "simpmusic") {
-                        data.host
-                    } else {
-                        segments.getOrNull(1)
-                    }
+                val appPath = if (data.scheme == "simpmusic") data.host else segments.getOrNull(1)
                 Logger.d("MainActivity", "simpmusic.org deep link, appPath: $appPath")
                 viewModel.setIntent(null)
                 when (appPath) {
@@ -196,7 +169,6 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                             viewModel.loadSharedMediaItem(videoId)
                         }
                     }
-
                     "playlist" -> {
                         data.getQueryParameter("list")?.let { playlistId ->
                             if (playlistId.startsWith("OLAK5uy_")) {
@@ -208,16 +180,8 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                             }
                         }
                     }
-
                     "channel", "c" -> {
-                        // simpmusic://channel/UCxxx → segments = ["UCxxx"]
-                        // simpmusic.org/app/channel/UCxxx → segments = ["app", "channel", "UCxxx"]
-                        val artistId =
-                            if (data.scheme == "simpmusic") {
-                                segments.firstOrNull()
-                            } else {
-                                segments.getOrNull(2)
-                            }
+                        val artistId = if (data.scheme == "simpmusic") segments.firstOrNull() else segments.getOrNull(2)
                         artistId?.let {
                             if (it.startsWith("UC")) {
                                 navController.navigate(ArtistDestination(channelId = it))
@@ -226,13 +190,11 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                             }
                         }
                     }
-
                     "album" -> {
                         data.getQueryParameter("id")?.let { albumId ->
                             navController.navigate(AlbumDestination(browseId = albumId))
                         }
                     }
-
                     else -> {
                         viewModel.makeToast(getString(Res.string.this_link_is_not_supported))
                     }
@@ -241,51 +203,27 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                 Logger.d("MainActivity", "onCreate: $data")
                 when (val path = data.pathSegments.firstOrNull()) {
                     "playlist" -> {
-                        data
-                            .getQueryParameter("list")
-                            ?.let { playlistId ->
-                                viewModel.setIntent(null)
-                                if (playlistId.startsWith("OLAK5uy_")) {
-                                    navController.navigate(
-                                        AlbumDestination(
-                                            browseId = playlistId,
-                                        ),
-                                    )
-                                } else if (playlistId.startsWith("VL")) {
-                                    navController.navigate(
-                                        PlaylistDestination(
-                                            playlistId = playlistId,
-                                        ),
-                                    )
-                                } else {
-                                    navController.navigate(
-                                        PlaylistDestination(
-                                            playlistId = "VL$playlistId",
-                                        ),
-                                    )
-                                }
+                        data.getQueryParameter("list")?.let { playlistId ->
+                            viewModel.setIntent(null)
+                            if (playlistId.startsWith("OLAK5uy_")) {
+                                navController.navigate(AlbumDestination(browseId = playlistId))
+                            } else if (playlistId.startsWith("VL")) {
+                                navController.navigate(PlaylistDestination(playlistId = playlistId))
+                            } else {
+                                navController.navigate(PlaylistDestination(playlistId = "VL$playlistId"))
                             }
+                        }
                     }
-
                     "channel", "c" -> {
                         data.lastPathSegment?.let { artistId ->
                             if (artistId.startsWith("UC")) {
                                 viewModel.setIntent(null)
-                                navController.navigate(
-                                    ArtistDestination(
-                                        channelId = artistId,
-                                    ),
-                                )
+                                navController.navigate(ArtistDestination(channelId = artistId))
                             } else {
-                                viewModel.makeToast(
-                                    getString(
-                                        Res.string.this_link_is_not_supported,
-                                    ),
-                                )
+                                viewModel.makeToast(getString(Res.string.this_link_is_not_supported))
                             }
                         }
                     }
-
                     else -> {
                         when {
                             path == "watch" -> data.getQueryParameter("v")
@@ -319,12 +257,10 @@ fun App(viewModel: SharedViewModel = koinInject()) {
             it.hasRoute(FullscreenDestination::class)
         } == true
     }
-    var isScrolledToTop by rememberSaveable {
-        mutableStateOf(false)
-    }
+
+    var isScrolledToTop by rememberSaveable { mutableStateOf(false) }
     val isTablet = windowSize.isWidthAtLeastBreakpoint(WIDTH_DP_MEDIUM_LOWER_BOUND)
     val isTabletLandscape = isTablet && currentOrientation() == Orientation.LANDSCAPE
-
     val backdrop = rememberBackdrop()
 
     AppTheme {
@@ -346,15 +282,10 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                                     Modifier
                                         .height(56.dp)
                                         .fillMaxWidth()
-                                        .padding(
-                                            horizontal = 12.dp,
-                                        ).padding(
-                                            bottom = 4.dp,
-                                        ),
+                                        .padding(horizontal = 12.dp)
+                                        .padding(bottom = 4.dp),
                                     backdrop = backdrop,
-                                    onClick = {
-                                        isShowNowPlaylistScreen = true
-                                    },
+                                    onClick = { isShowNowPlaylistScreen = true },
                                     onClose = {
                                         viewModel.stopPlayer()
                                         viewModel.isServiceRunning = false
@@ -368,370 +299,344 @@ fun App(viewModel: SharedViewModel = koinInject()) {
                                     viewModel = viewModel,
                                     onOpenNowPlaying = { isShowNowPlaylistScreen = true },
                                     isScrolledToTop = isScrolledToTop,
-                                ) { klass ->
-                                    viewModel.reloadDestination(klass)
-                                }
+                                ) { klass -> viewModel.reloadDestination(klass) }
                             } else {
                                 AppBottomNavigationBar(
                                     navController = navController,
                                     isTranslucentBackground = isTranslucentBottomBar == TRUE,
-                                ) { klass ->
-                                    viewModel.reloadDestination(klass)
-                                }
+                                ) { klass -> viewModel.reloadDestination(klass) }
                             }
                         }
                     }
                 }
             },
             content = { innerPadding ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (isLiquidGlassEnabled == TRUE && !isTablet) {
-                                Modifier.layerBackdrop(backdrop)
-                            } else {
-                                Modifier
-                            },
-                        ),
-                ) {
-                    Row(
-                        Modifier.fillMaxSize(),
-                    ) {
-                        if (isTablet && !isInFullscreen) {
-                            AppNavigationRail(
-                                navController = navController,
-                            ) { klass ->
-                                viewModel.reloadDestination(klass)
+
+                // ── Derived state ──────────────────────────────────────────────────────
+                val artworkUrl = nowPlayingData?.mediaItem?.thumbnail
+                val showGlassBackground = isLiquidGlassEnabled == TRUE && artworkUrl != null
+
+                // ── Root Box: everything stacks inside here ────────────────────────────
+                Box(Modifier.fillMaxSize()) {
+
+                    // ── LAYER 0: Animated blurred album art + readability scrim ─────────
+                    // AnimatedContent handles the crossfade when the song (and thus
+                    // targetUrl) changes. No Coil crossfade needed — KMP-safe this way.
+                    AnimatedContent(
+                        targetState = if (showGlassBackground) artworkUrl else null,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(700)) togetherWith
+                                fadeOut(animationSpec = tween(700))
+                        },
+                        label = "GlassBackground",
+                    ) { targetUrl ->
+                        if (targetUrl != null) {
+                            Box(Modifier.fillMaxSize()) {
+                                // Album art — blurred heavily to act as the ambient
+                                // colour wash beneath the frosted glass elements.
+                                AsyncImage(
+                                    model = targetUrl,           // plain URL — no LocalContext needed
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .blur(
+                                            radius = 80.dp,
+                                            edgeTreatment = BlurredEdgeTreatment.Unbounded,
+                                        ),
+                                )
+                                // Readability scrim so white text/icons stay legible
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.55f)),
+                                )
                             }
+                        } else {
+                            // Fallback: transparent — Material surface shows through
+                            Box(Modifier.fillMaxSize())
                         }
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .weight(1f),
-                        ) {
+                    }
+
+                    // ── LAYER 1: Main interactive content ────────────────────────────────
+                    // layerBackdrop + hazeSource sit here so Haze samples the blurred
+                    // album art (Layer 0) as its source — giving the bottom bar and
+                    // mini-player their frosted glass depth automatically.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (isLiquidGlassEnabled == TRUE && !isTablet) {
+                                    Modifier.layerBackdrop(backdrop)
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
+                        Row(Modifier.fillMaxSize()) {
+                            if (isTablet && !isInFullscreen) {
+                                AppNavigationRail(navController = navController) { klass ->
+                                    viewModel.reloadDestination(klass)
+                                }
+                            }
                             Box(
                                 Modifier
                                     .fillMaxSize()
-                                    .then(
-                                        if (isLiquidGlassEnabled == TRUE && isTablet && !isInFullscreen) {
-                                            Modifier.layerBackdrop(backdrop)
-                                        } else {
-                                            Modifier
-                                        },
-                                    ).hazeSource(hazeState),
+                                    .weight(1f),
                             ) {
-                                AppNavigationGraph(
-                                    innerPadding = innerPadding,
-                                    navController = navController,
-                                    hideNavBar = {
-                                        isNavBarVisible = false
-                                    },
-                                    showNavBar = {
-                                        isNavBarVisible = true
-                                    },
-                                    showNowPlayingSheet = {
-                                        isShowNowPlaylistScreen = true
-                                    },
-                                    onScrolling = {
-                                        isScrolledToTop = it
-                                    },
-                                )
-                            }
-                            this@Row.AnimatedVisibility(
-                                modifier =
+                                Box(
                                     Modifier
+                                        .fillMaxSize()
+                                        .then(
+                                            if (isLiquidGlassEnabled == TRUE && isTablet && !isInFullscreen) {
+                                                Modifier.layerBackdrop(backdrop)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        // hazeSource captures whatever is rendered
+                                        // behind this box — i.e. the blurred art above.
+                                        .hazeSource(hazeState),
+                                ) {
+                                    AppNavigationGraph(
+                                        innerPadding = innerPadding,
+                                        navController = navController,
+                                        hideNavBar = { isNavBarVisible = false },
+                                        showNavBar = { isNavBarVisible = true },
+                                        showNowPlayingSheet = { isShowNowPlaylistScreen = true },
+                                        onScrolling = { isScrolledToTop = it },
+                                    )
+                                }
+
+                                this@Row.AnimatedVisibility(
+                                    modifier = Modifier
                                         .padding(innerPadding)
                                         .align(Alignment.BottomCenter),
-                                visible = isShowMiniPlayer && isTablet && !isInFullscreen,
-                                enter = fadeIn() + slideInHorizontally(),
-                                exit = fadeOut(),
-                            ) {
-                                MiniPlayer(
-                                    if (getPlatform() == Platform.Android) {
-                                        Modifier
-                                            .height(56.dp)
-                                            .fillMaxWidth(0.8f)
-                                            .padding(
-                                                horizontal = 12.dp,
-                                            ).padding(
-                                                bottom = 4.dp,
-                                            )
-                                    } else {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .height(84.dp)
-                                            .background(Color.Transparent)
-                                            .hazeEffect(hazeState, style = HazeMaterials.ultraThin()) {
-                                                blurEnabled = true
-                                            }
-                                    },
-                                    backdrop = backdrop,
-                                    onClick = {
-                                        isShowNowPlaylistScreen = true
-                                    },
-                                    onClose = {
-                                        viewModel.stopPlayer()
-                                        viewModel.isServiceRunning = false
-                                    },
-                                )
-                            }
-                        }
-                        if (isTablet && isTabletLandscape && !isInFullscreen) {
-                            AnimatedVisibility(
-                                isShowNowPlaylistScreen,
-                                enter = expandHorizontally() + fadeIn(),
-                                exit = fadeOut() + shrinkHorizontally(),
-                            ) {
-                                Row(
-                                    Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(0.35f),
+                                    visible = isShowMiniPlayer && isTablet && !isInFullscreen,
+                                    enter = fadeIn() + slideInHorizontally(),
+                                    exit = fadeOut(),
                                 ) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Box(
+                                    MiniPlayer(
+                                        if (getPlatform() == Platform.Android) {
+                                            Modifier
+                                                .height(56.dp)
+                                                .fillMaxWidth(0.8f)
+                                                .padding(horizontal = 12.dp)
+                                                .padding(bottom = 4.dp)
+                                        } else {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(84.dp)
+                                                .background(Color.Transparent)
+                                                .hazeEffect(hazeState, style = HazeMaterials.ultraThin()) {
+                                                    blurEnabled = true
+                                                }
+                                        },
+                                        backdrop = backdrop,
+                                        onClick = { isShowNowPlaylistScreen = true },
+                                        onClose = {
+                                            viewModel.stopPlayer()
+                                            viewModel.isServiceRunning = false
+                                        },
+                                    )
+                                }
+                            }
+
+                            if (isTablet && isTabletLandscape && !isInFullscreen) {
+                                AnimatedVisibility(
+                                    isShowNowPlaylistScreen,
+                                    enter = expandHorizontally() + fadeIn(),
+                                    exit = fadeOut() + shrinkHorizontally(),
+                                ) {
+                                    Row(
                                         Modifier
-                                            .padding(
-                                                innerPadding.copy(
-                                                    start = 0.dp,
-                                                    top = 0.dp,
-                                                    bottom = 0.dp,
-                                                ),
-                                            ).clip(
-                                                RoundedCornerShape(12.dp),
-                                            ),
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(0.35f),
                                     ) {
-                                        NowPlayingScreenContent(
-                                            navController = navController,
-                                            sharedViewModel = viewModel,
-                                            isExpanded = true,
-                                            dismissIcon = Icons.AutoMirrored.Rounded.ArrowForwardIos,
+                                        Spacer(Modifier.width(8.dp))
+                                        Box(
+                                            Modifier
+                                                .padding(
+                                                    innerPadding.copy(
+                                                        start = 0.dp,
+                                                        top = 0.dp,
+                                                        bottom = 0.dp,
+                                                    ),
+                                                )
+                                                .clip(RoundedCornerShape(12.dp)),
                                         ) {
-                                            isShowNowPlaylistScreen = false
+                                            NowPlayingScreenContent(
+                                                navController = navController,
+                                                sharedViewModel = viewModel,
+                                                isExpanded = true,
+                                                dismissIcon = Icons.AutoMirrored.Rounded.ArrowForwardIos,
+                                            ) {
+                                                isShowNowPlaylistScreen = false
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                if (isShowNowPlaylistScreen && !isTabletLandscape) {
-                    NowPlayingScreen(
-                        navController = navController,
-                    ) {
-                        isShowNowPlaylistScreen = false
+                    // ── LAYER 2: Full-screen Now Playing sheet ───────────────────────────
+                    if (isShowNowPlaylistScreen && !isTabletLandscape) {
+                        NowPlayingScreen(navController = navController) {
+                            isShowNowPlaylistScreen = false
+                        }
                     }
-                }
 
-                if (sleepTimerState.isDone) {
-                    Logger.w("MainActivity", "Sleep Timer Done: $sleepTimerState")
-                    AlertDialog(
-                        properties =
-                            DialogProperties(
+                    // ── LAYER 3: Dialogs ─────────────────────────────────────────────────
+                    if (sleepTimerState.isDone) {
+                        Logger.w("MainActivity", "Sleep Timer Done: $sleepTimerState")
+                        AlertDialog(
+                            properties = DialogProperties(
                                 dismissOnBackPress = false,
                                 dismissOnClickOutside = false,
                             ),
-                        onDismissRequest = {
-                            viewModel.stopSleepTimer()
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                viewModel.stopSleepTimer()
-                            }) {
-                                Text(
-                                    stringResource(Res.string.yes),
-                                    style = typo().bodySmall,
-                                )
-                            }
-                        },
-                        text = {
-                            Text(
-                                stringResource(Res.string.sleep_timer_off),
-                                style = typo().labelSmall,
-                            )
-                        },
-                        title = {
-                            Text(
-                                stringResource(Res.string.good_night),
-                                style = typo().bodySmall,
-                            )
-                        },
-                    )
-                }
+                            onDismissRequest = { viewModel.stopSleepTimer() },
+                            confirmButton = {
+                                TextButton(onClick = { viewModel.stopSleepTimer() }) {
+                                    Text(stringResource(Res.string.yes), style = typo().bodySmall)
+                                }
+                            },
+                            text = {
+                                Text(stringResource(Res.string.sleep_timer_off), style = typo().labelSmall)
+                            },
+                            title = {
+                                Text(stringResource(Res.string.good_night), style = typo().bodySmall)
+                            },
+                        )
+                    }
 
-                if (shouldShowUpdateDialog) {
-                    val response = updateData ?: return@Scaffold
-                    AlertDialog(
-                        properties =
-                            DialogProperties(
+                    if (shouldShowUpdateDialog) {
+                        val response = updateData ?: return@Scaffold
+                        AlertDialog(
+                            properties = DialogProperties(
                                 dismissOnBackPress = false,
                                 dismissOnClickOutside = false,
                             ),
-                        onDismissRequest = {
-                            shouldShowUpdateDialog = false
-                            viewModel.showedUpdateDialog = false
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
+                            onDismissRequest = {
+                                shouldShowUpdateDialog = false
+                                viewModel.showedUpdateDialog = false
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
                                     shouldShowUpdateDialog = false
                                     viewModel.showedUpdateDialog = false
                                     openUrl("https://simpmusic.org/download")
-                                },
-                            ) {
-                                Text(
-                                    stringResource(Res.string.download),
-                                    style = typo().bodySmall,
-                                )
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = {
+                                }) {
+                                    Text(stringResource(Res.string.download), style = typo().bodySmall)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
                                     shouldShowUpdateDialog = false
                                     viewModel.showedUpdateDialog = false
-                                },
-                            ) {
-                                Text(
-                                    stringResource(Res.string.cancel),
-                                    style = typo().bodySmall,
-                                )
-                            }
-                        },
-                        title = {
-                            Text(
-                                stringResource(Res.string.update_available),
-                                style = typo().labelSmall,
-                            )
-                        },
-                        text = {
-                            val formatted =
-                                response.releaseTime?.let { input ->
+                                }) {
+                                    Text(stringResource(Res.string.cancel), style = typo().bodySmall)
+                                }
+                            },
+                            title = {
+                                Text(stringResource(Res.string.update_available), style = typo().labelSmall)
+                            },
+                            text = {
+                                val formatted = response.releaseTime?.let { input ->
                                     try {
                                         val instant = kotlin.time.Instant.parse(input)
                                         val dateTime = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-                                        dateTime.format(
-                                            LocalDateTime.Format {
-                                                day()
-                                                char(' ')
-                                                monthName(MonthNames.ENGLISH_ABBREVIATED)
-                                                char(' ')
-                                                year()
-                                                char(' ')
-                                                hour()
-                                                char(':')
-                                                minute()
-                                                char(':')
-                                                second()
-                                            },
-                                        )
+                                        dateTime.format(LocalDateTime.Format {
+                                            day(); char(' ')
+                                            monthName(MonthNames.ENGLISH_ABBREVIATED); char(' ')
+                                            year(); char(' ')
+                                            hour(); char(':'); minute(); char(':'); second()
+                                        })
                                     } catch (e: Exception) {
                                         stringResource(Res.string.unknown)
                                     }
                                 } ?: stringResource(Res.string.unknown)
 
-                            val updateMessage =
-                                runBlocking {
-                                    getString(
-                                        Res.string.update_message,
-                                        response.tagName,
-                                        formatted,
-                                    )
+                                val updateMessage = runBlocking {
+                                    getString(Res.string.update_message, response.tagName, formatted)
                                 }
-                            Column(
-                                Modifier
-                                    .heightIn(
-                                        max = 400.dp,
-                                    ).verticalScroll(
-                                        rememberScrollState(),
-                                    ),
-                            ) {
-                                Text(
-                                    text = updateMessage,
-                                    style = typo().labelMedium,
-                                    modifier =
-                                        Modifier.padding(
-                                            vertical = 8.dp,
-                                        ),
-                                )
-                                Markdown(
-                                    response.body,
-                                    typography =
-                                        markdownTypography(
+                                Column(
+                                    Modifier
+                                        .heightIn(max = 400.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                ) {
+                                    Text(
+                                        text = updateMessage,
+                                        style = typo().labelMedium,
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                    )
+                                    Markdown(
+                                        response.body,
+                                        typography = markdownTypography(
                                             h1 = typo().labelLarge,
                                             h2 = typo().labelMedium,
                                             h3 = typo().labelSmall,
                                             text = typo().bodySmall,
                                             bullet = typo().bodySmall,
                                             paragraph = typo().bodySmall,
-                                            textLink =
-                                                TextLinkStyles(
-                                                    SpanStyle(
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Normal,
-                                                        fontFamily = fontFamily(),
-                                                        textDecoration = TextDecoration.Underline,
-                                                    ),
+                                            textLink = TextLinkStyles(
+                                                SpanStyle(
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Normal,
+                                                    fontFamily = fontFamily(),
+                                                    textDecoration = TextDecoration.Underline,
                                                 ),
+                                            ),
                                         ),
-                                )
-                            }
-                        },
-                    )
-                }
-
-                if (showNotificationPermissionDialog) {
-                    var doNotShowAgain by remember { mutableStateOf(false) }
-                    AlertDialog(
-                        onDismissRequest = {
-                            viewModel.dismissNotificationPermissionDialog(doNotShowAgain)
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    viewModel.dismissNotificationPermissionDialog(doNotShowAgain)
-                                },
-                            ) {
-                                Text(
-                                    stringResource(Res.string.yes),
-                                    style = typo().bodySmall,
-                                )
-                            }
-                        },
-                        title = {
-                            Text(
-                                stringResource(Res.string.notification),
-                                style = typo().labelSmall,
-                            )
-                        },
-                        text = {
-                            Column {
-                                Text(
-                                    stringResource(Res.string.this_app_needs_to_access_your_notification),
-                                    style = typo().bodySmall,
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier =
-                                        Modifier
-                                            .clickable { doNotShowAgain = !doNotShowAgain }
-                                            .fillMaxWidth(),
-                                ) {
-                                    Checkbox(
-                                        checked = doNotShowAgain,
-                                        onCheckedChange = { doNotShowAgain = it },
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        stringResource(Res.string.do_not_show_again),
-                                        style = typo().bodySmall,
                                     )
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
+
+                    if (showNotificationPermissionDialog) {
+                        var doNotShowAgain by remember { mutableStateOf(false) }
+                        AlertDialog(
+                            onDismissRequest = {
+                                viewModel.dismissNotificationPermissionDialog(doNotShowAgain)
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    viewModel.dismissNotificationPermissionDialog(doNotShowAgain)
+                                }) {
+                                    Text(stringResource(Res.string.yes), style = typo().bodySmall)
+                                }
+                            },
+                            title = {
+                                Text(stringResource(Res.string.notification), style = typo().labelSmall)
+                            },
+                            text = {
+                                Column {
+                                    Text(
+                                        stringResource(Res.string.this_app_needs_to_access_your_notification),
+                                        style = typo().bodySmall,
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clickable { doNotShowAgain = !doNotShowAgain }
+                                            .fillMaxWidth(),
+                                    ) {
+                                        Checkbox(
+                                            checked = doNotShowAgain,
+                                            onCheckedChange = { doNotShowAgain = it },
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            stringResource(Res.string.do_not_show_again),
+                                            style = typo().bodySmall,
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             },
         )
