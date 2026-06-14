@@ -831,29 +831,34 @@ class SharedViewModel(
             }
         }
 
-                    fun playFromVoiceSearch(query: String) {
+                        fun playFromVoiceSearch(query: String) {
         viewModelScope.launch {
-            // Hum direct SearchViewModel ka logic use karenge jo 'SearchSongs' function hai
-            // Tumhare project structure ke mutabik ye logic SearchViewModel mein hai
-            // Par hum SharedViewModel mein bhi ise call kar sakte hain ya simply songRepository use kar sakte hain:
-            
-            songRepository.searchSongs(query).collectLatest { response ->
-                val data = response.data
-                if (!data.isNullOrEmpty()) {
-                    val track = data.first().toTrack() 
-                    mediaPlayerHandler.setQueueData(
-                        QueueData.Data(
-                            listTracks = arrayListOf(track),
-                            firstPlayedTrack = track,
-                            playlistId = "VOICE_SEARCH_${query.replace(" ", "_")}",
-                            playlistName = query,
-                            playlistType = PlaylistType.RADIO,
-                            continuation = null,
-                        ),
-                    )
-                    loadMediaItemFromTrack(track, SONG_CLICK)
-                } else {
-                    makeToast("No results found for \"$query\"")
+            // searchRepository ka sahi function 'getSearchDataSong' hai
+            searchRepository.getSearchDataSong(query).collectLatest { response ->
+                if (response is Resource.Success) {
+                    val data = response.data
+                    if (!data.isNullOrEmpty()) {
+                        // data yahan 'SongsResult' hai, isko 'Track' mein badalna padega
+                        val firstSong = data.first()
+                        // 'toTrack' extension function tumhare project mein pehle se hai
+                        val track = firstSong.toTrack() 
+                        
+                        mediaPlayerHandler.setQueueData(
+                            QueueData.Data(
+                                listTracks = arrayListOf(track),
+                                firstPlayedTrack = track,
+                                playlistId = "VOICE_SEARCH_${query.replace(" ", "_")}",
+                                playlistName = query,
+                                playlistType = PlaylistType.RADIO,
+                                continuation = null,
+                            ),
+                        )
+                        loadMediaItemFromTrack(track, SONG_CLICK)
+                    } else {
+                        makeToast("No results found for \"$query\"")
+                    }
+                } else if (response is Resource.Error) {
+                    makeToast("Error: ${response.message}")
                 }
             }
         }
