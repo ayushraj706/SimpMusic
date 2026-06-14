@@ -1,6 +1,7 @@
 package com.maxrave.simpmusic
 
 import android.Manifest
+import android.app.SearchManager // ADDED FOR GOOGLE ASSISTANT
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -89,6 +90,10 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         Logger.d("MainActivity", "onNewIntent: $intent")
+        
+        // 🔥 ADDED: Handle Google Assistant Voice Search Query
+        handleVoiceSearchIntent(intent)
+
         viewModel.setIntent(
             GenericIntent(
                 action = intent.action,
@@ -117,6 +122,10 @@ class MainActivity : AppCompatActivity() {
             startMusicService()
         }
         Logger.d("MainActivity", "onCreate: ")
+        
+        // 🔥 ADDED: Handle Google Assistant Voice Search Query on App Start
+        handleVoiceSearchIntent(intent)
+        
         val data = (intent?.data ?: intent?.getStringExtra(Intent.EXTRA_TEXT)?.toUri())?.toKmpUriOrNull()
         if (data != null) {
             viewModel.setIntent(
@@ -225,6 +234,23 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             App(viewModel)
+        }
+    }
+
+    // 🔥 ADDED: Helper function to extract Assistant voice command and send to ViewModel
+    private fun handleVoiceSearchIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (action == "android.media.action.MEDIA_PLAY_FROM_SEARCH" ||
+            action == Intent.ACTION_SEARCH ||
+            action == "com.google.android.gms.actions.SEARCH_ACTION"
+        ) {
+            val query = intent.getStringExtra(SearchManager.QUERY)
+            if (!query.isNullOrBlank()) {
+                Logger.d("VoiceSearch", "Received query from Assistant: $query")
+                // Send this query to our ViewModel to search and play
+                viewModel.playFromVoiceSearch(query)
+            }
         }
     }
 
