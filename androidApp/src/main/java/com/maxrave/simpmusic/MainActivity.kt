@@ -1,7 +1,7 @@
 package com.maxrave.simpmusic
 
 import android.Manifest
-import android.app.SearchManager // ADDED FOR GOOGLE ASSISTANT
+import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -63,7 +63,6 @@ class MainActivity : AppCompatActivity() {
                 name: ComponentName?,
                 service: IBinder?,
             ) {
-//                mediaPlayerHandler.setActivitySession(this@MainActivity, MainActivity::class.java, service)
                 setServiceActivitySession(this@MainActivity, MainActivity::class.java, service)
                 Logger.w("MainActivity", "onServiceConnected: ")
                 mBound = true
@@ -89,9 +88,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         Logger.d("MainActivity", "onNewIntent: $intent")
         
-        // 🔥 ADDED: Handle Google Assistant Voice Search Query
+        // Handle Google Assistant Voice Search Query
         handleVoiceSearchIntent(intent)
 
         viewModel.setIntent(
@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity() {
         }
         Logger.d("MainActivity", "onCreate: ")
         
-        // 🔥 ADDED: Handle Google Assistant Voice Search Query on App Start
+        // Handle Google Assistant Voice Search Query on App Start
         handleVoiceSearchIntent(intent)
         
         val data = (intent?.data ?: intent?.getStringExtra(Intent.EXTRA_TEXT)?.toUri())?.toKmpUriOrNull()
@@ -142,14 +142,6 @@ class MainActivity : AppCompatActivity() {
         if (getString(FIRST_TIME_MIGRATION) != STATUS_DONE) {
             Logger.d("Locale Key", "onCreate: ${Locale.getDefault().toLanguageTag()}")
             if (SUPPORTED_LANGUAGE.codes.contains(Locale.getDefault().toLanguageTag())) {
-                Logger.d(
-                    "Contains",
-                    "onCreate: ${
-                        SUPPORTED_LANGUAGE.codes.contains(
-                            Locale.getDefault().toLanguageTag(),
-                        )
-                    }",
-                )
                 putString(SELECTED_LANGUAGE, Locale.getDefault().toLanguageTag())
                 if (SUPPORTED_LOCATION.items.contains(Locale.getDefault().country)) {
                     putString("location", Locale.getDefault().country)
@@ -159,13 +151,9 @@ class MainActivity : AppCompatActivity() {
             } else {
                 putString(SELECTED_LANGUAGE, "en-US")
             }
-            // Fetch the selected language from wherever it was stored. In this case its SharedPref
             getString(SELECTED_LANGUAGE)?.let {
-                Logger.d("Locale Key", "getString: $it")
-                // Set this locale using the AndroidX library that will handle the storage itself
                 val localeList = LocaleListCompat.forLanguageTags(it)
                 AppCompatDelegate.setApplicationLocales(localeList)
-                // Set the migration flag to ensure that this is executed only once
                 putString(FIRST_TIME_MIGRATION, STATUS_DONE)
             }
         }
@@ -174,10 +162,6 @@ class MainActivity : AppCompatActivity() {
                 SELECTED_LANGUAGE,
             )
         ) {
-            Logger.d(
-                "Locale Key",
-                "onCreate: ${AppCompatDelegate.getApplicationLocales().toLanguageTags()}",
-            )
             putString(SELECTED_LANGUAGE, AppCompatDelegate.getApplicationLocales().toLanguageTags())
         }
 
@@ -215,7 +199,6 @@ class MainActivity : AppCompatActivity() {
                 if (doNotAsk != "true") {
                     val wasAsked = getString("notification_permission_asked")
                     if (wasAsked != "true") {
-                        // First time: request system permission
                         EasyPermissions.requestPermissions(
                             this,
                             runBlocking { ComposeResUtils.getResString(ComposeResUtils.StringType.NOTIFICATION_REQUEST) },
@@ -224,7 +207,6 @@ class MainActivity : AppCompatActivity() {
                         )
                         putString("notification_permission_asked", "true")
                     } else {
-                        // Already asked before: show custom dialog with "Don't show again"
                         viewModel.showNotificationPermissionDialog()
                     }
                 }
@@ -237,7 +219,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 🔥 ADDED: Helper function to extract Assistant voice command and send to ViewModel
+    // Helper function to extract Assistant voice command and send to ViewModel
     private fun handleVoiceSearchIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.action
@@ -245,10 +227,10 @@ class MainActivity : AppCompatActivity() {
             action == Intent.ACTION_SEARCH ||
             action == "com.google.android.gms.actions.SEARCH_ACTION"
         ) {
-            val query = intent.getStringExtra(SearchManager.QUERY)
-            if (!query.isNullOrBlank()) {
+            val query = intent.getStringExtra(SearchManager.QUERY) ?: ""
+            if (query.isNotBlank()) {
                 Logger.d("VoiceSearch", "Received query from Assistant: $query")
-                // Send this query to our ViewModel to search and play
+                // Search ko view model ke thru process karna aur app screen pe laana
                 viewModel.playFromVoiceSearch(query)
             }
         }
@@ -258,7 +240,6 @@ class MainActivity : AppCompatActivity() {
         val shouldStopMusicService = viewModel.shouldStopMusicService()
         Logger.w("MainActivity", "onDestroy: Should stop service $shouldStopMusicService")
 
-        // Always unbind service if it was bound to prevent MusicBinder leak
         if (shouldStopMusicService && shouldUnbind && isFinishing) {
             viewModel.isServiceRunning = false
         }
@@ -273,7 +254,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMusicService() {
-//        mediaPlayerHandler.startMediaService(this, serviceConnection)
         com.maxrave.media3.di
             .startService(this@MainActivity, serviceConnection)
         mediaPlayerHandler.pushPlayerError = { it ->
