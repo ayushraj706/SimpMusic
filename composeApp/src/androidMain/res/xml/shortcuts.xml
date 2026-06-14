@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <capability android:name="actions.intent.PLAY_AUDIO">
+        
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.maxrave.simpmusic"
+            android:targetClass="com.maxrave.simpmusic.MainActivity">
+            
+            <parameter
+                android:name="playAudio.textQuery"
+                android:key="query" />
+                
+        </intent>
+        
+    </capability>
+
+</shortcuts>
