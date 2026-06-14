@@ -25,15 +25,16 @@ val viewModelModule =
     module {
         single {
             SharedViewModel(
-                get(),
-                get(),
-                get(),
-                get(),
-                get(),
-                get(),
-                get(),
-                get(),
-                get(),
+                get(), // dataStoreManager
+                get(), // streamRepository
+                get(), // searchRepository  <-- Ye naya add hua
+                get(), // updateRepository
+                get(), // songRepository
+                get(), // albumRepository
+                get(), // localPlaylistRepository
+                get(), // playlistRepository
+                get(), // lyricsCanvasRepository
+                get(), // cacheRepository   <-- Ye 10th wala missing tha
             )
         }
         single {
@@ -42,6 +43,7 @@ val viewModelModule =
                 get(),
             )
         }
+        // ... baki sab niche waise hi rahega
         viewModel {
             NowPlayingBottomSheetViewModel(
                 get(),
